@@ -13,7 +13,8 @@ load_dotenv()
 class Instagram(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.last_run = {}  # Store last run time per user
+        self.last_run = None  # Store last run time (global for all users)
+        self.last_user = None  # Store who last used it
         self.cooldown_hours = 24
         
         # Load Instagram credentials from .env
@@ -24,22 +25,22 @@ class Instagram(commands.Cog):
         """Called when the cog is loaded"""
         pass
     
-    def check_cooldown(self, user_id: int) -> tuple[bool, int]:
+    def check_cooldown(self) -> tuple[bool, int, str]:
         """
-        Check if user is on cooldown
-        Returns: (is_on_cooldown, seconds_remaining)
+        Check if command is on cooldown (global)
+        Returns: (is_on_cooldown, seconds_remaining, last_user)
         """
-        if user_id not in self.last_run:
-            return False, 0
+        if self.last_run is None:
+            return False, 0, None
         
-        time_passed = datetime.now() - self.last_run[user_id]
+        time_passed = datetime.now() - self.last_run
         cooldown_duration = timedelta(hours=self.cooldown_hours)
         
         if time_passed < cooldown_duration:
             seconds_remaining = int((cooldown_duration - time_passed).total_seconds())
-            return True, seconds_remaining
+            return True, seconds_remaining, self.last_user
         
-        return False, 0
+        return False, 0, None
     
     def format_time(self, seconds: int) -> str:
         """Format seconds into readable time format"""
@@ -158,13 +159,14 @@ class Instagram(commands.Cog):
             return
         
         # Check cooldown
-        on_cooldown, seconds_left = self.check_cooldown(interaction.user.id)
+        on_cooldown, seconds_left, last_user = self.check_cooldown()
         
         if on_cooldown:
             time_str = self.format_time(seconds_left)
+            last_user_mention = f"<@{last_user}>" if last_user else "Someone"
             embed = discord.Embed(
-                title="⏰ Cooldown Active",
-                description=f"You can use this command again in **{time_str}**",
+                title="⏰ Global Cooldown Active",
+                description=f"{last_user_mention} used this command recently.\n\nAvailable again in **{time_str}**",
                 color=discord.Color.orange()
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -185,15 +187,16 @@ class Instagram(commands.Cog):
         success, message = await self.instagram_login()
         
         if success:
-            # Update last run time
-            self.last_run[interaction.user.id] = datetime.now()
+            # Update last run time (global)
+            self.last_run = datetime.now()
+            self.last_user = interaction.user.id
             
             embed = discord.Embed(
                 description=message,
                 color=discord.Color.green(),
                 timestamp=datetime.now()
             )
-            embed.set_footer(text=f"Next available in {self.cooldown_hours} hours")
+            embed.set_footer(text=f"Command available again in {self.cooldown_hours} hours")
             await interaction.edit_original_response(embed=embed)
         else:
             embed = discord.Embed(
